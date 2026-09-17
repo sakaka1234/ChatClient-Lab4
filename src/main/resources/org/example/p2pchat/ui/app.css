@@ -1,0 +1,372 @@
+.root {
+    -fx-font-family: "Segoe UI", "Inter", sans-serif;
+    -fx-font-size: 13px;
+
+    -fx-surface: #f6f7f9;
+    -fx-surface-raised: #ffffff;
+    -fx-surface-sunken: #eef0f4;
+    -fx-line: #dcdfe6;
+    -fx-text-primary: #14161a;
+    -fx-text-secondary: #5b6270;
+    -fx-accent: #1f6feb;
+    -fx-accent-soft: #e8f0fe;
+    -fx-danger: #b42318;
+    -fx-success: #1a7f4b;
+}
+
+.app-backdrop {
+    -fx-background-color: -fx-surface;
+}
+
+.card {
+    -fx-background-color: -fx-surface-raised;
+    -fx-background-radius: 14;
+    -fx-border-color: -fx-line;
+    -fx-border-radius: 14;
+    -fx-border-width: 1;
+    -fx-effect: dropshadow(gaussian, rgba(20, 22, 26, 0.08), 18, 0, 0, 6);
+}
+
+.app-title {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-primary;
+}
+
+.topbar-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-primary;
+}
+
+.app-subtitle {
+    -fx-text-fill: -fx-text-secondary;
+}
+
+.field-label {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-secondary;
+}
+
+.field-hint {
+    -fx-font-size: 12px;
+    -fx-text-fill: -fx-text-secondary;
+}
+
+.status-label {
+    -fx-font-size: 13px;
+    -fx-text-fill: -fx-text-primary;
+    -fx-background-color: -fx-surface-sunken;
+    -fx-background-radius: 8;
+    -fx-padding: 10 12 10 12;
+}
+
+.pill {
+    -fx-font-size: 12px;
+    -fx-text-fill: -fx-text-secondary;
+    -fx-background-color: -fx-surface-sunken;
+    -fx-background-radius: 999;
+    -fx-padding: 5 12 5 12;
+}
+
+.peer-label {
+    -fx-font-size: 12px;
+    -fx-text-fill: -fx-text-secondary;
+}
+
+.field {
+    -fx-background-color: -fx-surface-raised;
+    -fx-text-fill: -fx-text-primary;
+    -fx-prompt-text-fill: #9aa2b1;
+    -fx-background-radius: 8;
+    -fx-border-color: -fx-line;
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+    -fx-padding: 9 11 9 11;
+}
+
+.field:focused {
+    -fx-border-color: -fx-accent;
+    -fx-background-color: -fx-surface-raised;
+}
+
+.primary-button {
+    -fx-background-color: -fx-accent;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-background-radius: 8;
+    -fx-padding: 10 16 10 16;
+    -fx-cursor: hand;
+}
+
+.primary-button:hover {
+    -fx-background-color: derive(-fx-accent, -8%);
+}
+
+.primary-button:pressed {
+    -fx-background-color: derive(-fx-accent, -16%);
+    -fx-translate-y: 1;
+}
+
+.primary-button:disabled {
+    -fx-opacity: 0.5;
+}
+
+.ghost-button {
+    -fx-background-color: -fx-surface-raised;
+    -fx-text-fill: -fx-text-primary;
+    -fx-font-weight: bold;
+    -fx-background-radius: 8;
+    -fx-border-color: -fx-line;
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+    -fx-padding: 10 16 10 16;
+    -fx-cursor: hand;
+}
+
+.ghost-button:hover {
+    -fx-border-color: -fx-accent;
+    -fx-text-fill: -fx-accent;
+}
+
+.danger-button {
+    -fx-background-color: -fx-surface-raised;
+    -fx-text-fill: -fx-danger;
+    -fx-font-weight: bold;
+    -fx-background-radius: 8;
+    -fx-border-color: derive(-fx-danger, 60%);
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+    -fx-padding: 10 16 10 16;
+    -fx-cursor: hand;
+}
+
+.danger-button:hover {
+    -fx-background-color: -fx-danger;
+    -fx-text-fill: white;
+}
+
+.mode-button {
+    -fx-background-color: -fx-surface-sunken;
+    -fx-text-fill: -fx-text-secondary;
+    -fx-font-weight: bold;
+    -fx-background-radius: 8;
+    -fx-padding: 10 12 10 12;
+    -fx-cursor: hand;
+}
+
+.mode-button-active {
+    -fx-background-color: -fx-accent-soft;
+    -fx-text-fill: -fx-accent;
+    -fx-border-color: -fx-accent;
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+}
+
+.session-root {
+    -fx-background-color: -fx-surface;
+}
+
+.topbar {
+    -fx-padding: 0 4 12 4;
+}
+
+.panel {
+    -fx-background-color: -fx-surface-raised;
+    -fx-background-radius: 14;
+    -fx-border-color: -fx-line;
+    -fx-border-radius: 14;
+    -fx-border-width: 1;
+    -fx-padding: 16;
+}
+
+.panel-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-primary;
+}
+
+.chat-list,
+.transfer-log {
+    -fx-background-color: -fx-surface-sunken;
+    -fx-background-radius: 10;
+    -fx-border-color: transparent;
+    -fx-padding: 4;
+}
+
+.chat-list .list-cell,
+.transfer-log .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -fx-text-primary;
+    -fx-padding: 6 8 6 8;
+    -fx-wrap-text: true;
+}
+
+.chat-list .list-cell {
+    -fx-padding: 3 2 3 2;
+}
+
+.bubble-row {
+    -fx-padding: 1 0 1 0;
+}
+
+.bubble {
+    -fx-padding: 9 12 7 12;
+    -fx-background-radius: 14;
+    -fx-border-radius: 14;
+    -fx-border-width: 1;
+}
+
+.bubble-in {
+    -fx-background-color: -fx-surface-raised;
+    -fx-border-color: -fx-line;
+}
+
+.bubble-out {
+    -fx-background-color: -fx-accent-soft;
+    -fx-border-color: derive(-fx-accent-soft, -18%);
+}
+
+.bubble-text {
+    -fx-text-fill: -fx-text-primary;
+    -fx-font-size: 13.5px;
+}
+
+.bubble-meta {
+    -fx-padding: 0 1 0 1;
+}
+
+.bubble-time {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: -fx-text-secondary;
+}
+
+.bubble-status {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: -fx-text-secondary;
+}
+
+.bubble-status-failed {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: -fx-danger;
+    -fx-font-weight: bold;
+}
+
+.file-card {
+    -fx-background-color: -fx-surface-sunken;
+    -fx-background-radius: 10;
+    -fx-padding: 8;
+}
+
+.file-badge {
+    -fx-background-color: -fx-accent;
+    -fx-text-fill: white;
+    -fx-font-size: 10.5px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 8;
+    -fx-padding: 12 6 12 6;
+}
+
+.file-name {
+    -fx-font-size: 12.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-primary;
+}
+
+.file-size {
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-secondary;
+}
+
+.file-failure {
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -fx-danger;
+}
+
+.chat-image {
+    -fx-cursor: hand;
+}
+
+.mini-button {
+    -fx-background-color: -fx-surface-raised;
+    -fx-text-fill: -fx-text-primary;
+    -fx-font-size: 11.5px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 7;
+    -fx-border-color: -fx-line;
+    -fx-border-radius: 7;
+    -fx-border-width: 1;
+    -fx-padding: 5 12 5 12;
+    -fx-cursor: hand;
+}
+
+.mini-button:hover {
+    -fx-border-color: -fx-accent;
+    -fx-text-fill: -fx-accent;
+}
+
+.mini-button-primary {
+    -fx-background-color: -fx-accent;
+    -fx-text-fill: white;
+    -fx-font-size: 11.5px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 7;
+    -fx-padding: 5 12 5 12;
+    -fx-cursor: hand;
+}
+
+.mini-button-primary:hover {
+    -fx-background-color: derive(-fx-accent, -8%);
+}
+
+.bubble-progress {
+    -fx-pref-height: 7;
+}
+
+.bubble-progress > .bar {
+    -fx-background-color: -fx-accent;
+    -fx-background-radius: 999;
+    -fx-padding: 2;
+}
+
+.bubble-progress > .track {
+    -fx-background-color: derive(-fx-surface-sunken, -8%);
+    -fx-background-radius: 999;
+}
+
+.transfer-log .list-cell {
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -fx-text-secondary;
+}
+
+.file-progress {
+    -fx-pref-height: 10;
+}
+
+.file-progress > .bar {
+    -fx-background-color: -fx-accent;
+    -fx-background-radius: 999;
+    -fx-padding: 3;
+}
+
+.file-progress > .track {
+    -fx-background-color: -fx-surface-sunken;
+    -fx-background-radius: 999;
+}
+
+.file-percent {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-primary;
+}
+
+.scroll-bar:vertical,
+.scroll-bar:horizontal {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar .thumb {
+    -fx-background-color: #c3c9d4;
+    -fx-background-radius: 999;
+}
