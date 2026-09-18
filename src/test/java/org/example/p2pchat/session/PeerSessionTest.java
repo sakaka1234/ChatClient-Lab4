@@ -59,8 +59,8 @@ class PeerSessionTest {
         }
 
         @Override
-        public void onChatMessage(String direction, String message) {
-            chats.add(direction + ":" + message);
+        public void onChatMessage(String sender, String message) {
+            chats.add(sender + ":" + message);
         }
 
         @Override

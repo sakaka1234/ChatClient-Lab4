@@ -233,6 +233,12 @@
     -fx-font-size: 13.5px;
 }
 
+.bubble-sender {
+    -fx-text-fill: -fx-accent;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
 .bubble-meta {
     -fx-padding: 0 1 0 1;
 }

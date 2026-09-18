@@ -40,7 +40,7 @@ class BidirectionalSameIdTest {
         }
 
         @Override
-        public void onChatMessage(String direction, String message) {
+        public void onChatMessage(String sender, String message) {
         }
 
         @Override
@@ -188,7 +188,7 @@ class BidirectionalSameIdTest {
             }
 
             @Override
-            public void onChatMessage(String direction, String message) {
+            public void onChatMessage(String sender, String message) {
                 latch.countDown();
             }
 

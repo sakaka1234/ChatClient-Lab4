@@ -6,7 +6,7 @@ public interface SessionListener {
 
     void onStatusChanged(String status);
 
-    void onChatMessage(String direction, String message);
+    void onChatMessage(String sender, String message);
 
     void onFileOffered(int fileId, String direction, String fileName, long fileSize);
 

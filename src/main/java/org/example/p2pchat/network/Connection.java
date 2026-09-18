@@ -89,6 +89,7 @@ public final class Connection implements AutoCloseable {
             if (open.get() && !closingIntentionally.get()) {
                 AppLogger.info("Peer connection closed unexpectedly: " + describe(e));
             }
+            closeSocket();
             notifyDisconnected(closingIntentionally.get() ? null : e);
         } finally {
             closeSocket();
@@ -109,8 +110,8 @@ public final class Connection implements AutoCloseable {
             if (open.get() && !closingIntentionally.get()) {
                 AppLogger.error("Failed to send packet", e);
             }
-            notifyDisconnected(closingIntentionally.get() ? null : e);
             closeSocket();
+            notifyDisconnected(closingIntentionally.get() ? null : e);
         }
     }
 

@@ -119,5 +119,44 @@ class PacketTest {
         assertEquals(5, MessageType.DISCONNECT.id());
         assertEquals(6, MessageType.FILE_ACCEPT.id());
         assertEquals(7, MessageType.FILE_DECLINE.id());
+        assertEquals(8, MessageType.HELLO.id());
+        assertEquals(9, MessageType.RELAY.id());
+    }
+
+    @Test
+    void helloPacketKeepsName() {
+        Packet packet = Packet.hello("An");
+
+        assertEquals(MessageType.HELLO, packet.type());
+        assertEquals("An", packet.helloName());
+    }
+
+    @Test
+    void helloPacketKeepsUnicodeName() {
+        Packet packet = Packet.hello("B\u00ecnh");
+
+        assertEquals("B\u00ecnh", packet.helloName());
+    }
+
+    @Test
+    void relayPacketKeepsSenderAndText() {
+        Packet packet = Packet.relay("An", "xin chao ca nha");
+
+        assertEquals(MessageType.RELAY, packet.type());
+        assertEquals("An", packet.relaySender());
+        assertEquals("xin chao ca nha", packet.relayText());
+    }
+
+    @Test
+    void relayPacketKeepsUnicodeTextAndSender() {
+        Packet packet = Packet.relay("C\u01b0\u1eddng", "\u0111ang \u1edf \u0111\u00e2y \uD83D\uDC4B");
+
+        assertEquals("C\u01b0\u1eddng", packet.relaySender());
+        assertEquals("\u0111ang \u1edf \u0111\u00e2y \uD83D\uDC4B", packet.relayText());
+    }
+
+    @Test
+    void relaySenderRejectsNonRelayPacket() {
+        assertThrows(IllegalStateException.class, () -> Packet.chat("hi").relaySender());
     }
 }

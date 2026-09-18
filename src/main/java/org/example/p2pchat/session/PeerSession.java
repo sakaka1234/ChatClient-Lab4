@@ -14,12 +14,21 @@ import org.example.p2pchat.util.NetworkUtils;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * A chat session that speaks to one or more peers over framed TCP packets.
+ *
+ * <p>In <b>host</b> mode a {@link PeerServer} accepts many peers and acts as the relay hub: a chat
+ * message from one client is forwarded to every other client, tagged with the sender's display name.
+ * In <b>client</b> mode exactly one peer (the host) is connected, and messages travel through it.
+ * Both modes are symmetric once connected: chat can be sent from any instance at any time.
+ */
 public final class PeerSession implements AutoCloseable {
 
     public static final int CONNECT_TIMEOUT_MILLIS = 5000;
@@ -31,6 +40,9 @@ public final class PeerSession implements AutoCloseable {
 
     private final SessionListener listener;
     private final FileTransferManager fileManager;
+    private final ChatManager chatManager;
+    private final PeerHub<Connection> hub = new PeerHub<>();
+    private final String displayName;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final ExecutorService sender = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "p2p-file-sender");
@@ -42,11 +54,10 @@ public final class PeerSession implements AutoCloseable {
             AppLogger.error("Uncaught error on " + thread.getName(), error);
 
     private volatile PeerServer server;
-    private volatile Connection connection;
-    private volatile ChatManager chatManager;
+    private volatile boolean hosting;
 
     public PeerSession(Path receiveDirectory, SessionListener listener) {
-        this(receiveDirectory, listener, FileTransferManager.ASK_ALWAYS);
+        this(receiveDirectory, listener, PeerHub.DEFAULT_NAME, FileTransferManager.ASK_ALWAYS);
     }
 
     /**
@@ -56,19 +67,42 @@ public final class PeerSession implements AutoCloseable {
      */
     public PeerSession(Path receiveDirectory, SessionListener listener,
                        java.util.function.BiPredicate<String, Long> autoReceive) {
+        this(receiveDirectory, listener, PeerHub.DEFAULT_NAME, autoReceive);
+    }
+
+    public PeerSession(Path receiveDirectory, SessionListener listener, String displayName) {
+        this(receiveDirectory, listener, displayName, FileTransferManager.ASK_ALWAYS);
+    }
+
+    /**
+     * @param displayName the name other peers see next to this instance's chat messages.
+     */
+    public PeerSession(Path receiveDirectory, SessionListener listener, String displayName,
+                       java.util.function.BiPredicate<String, Long> autoReceive) {
         this.listener = Objects.requireNonNull(listener, "listener");
+        this.displayName = Objects.requireNonNull(displayName, "displayName").isBlank()
+                ? PeerHub.DEFAULT_NAME : displayName.strip();
         this.fileManager = new FileTransferManager(receiveDirectory, new FileTransferBridge(),
                 Objects.requireNonNull(autoReceive, "autoReceive"));
+        this.chatManager = new ChatManager(this::sendChatPacket, new ChatBridge());
+    }
+
+    public String displayName() {
+        return displayName;
+    }
+
+    public int peerCount() {
+        return hub.size();
     }
 
     public void startHost(int port) throws IOException {
         NetworkUtils.validateListeningPort(port);
         ensureOpen();
-        clearConnection();
+        clearAllConnections();
         closeServerQuietly();
 
+        hosting = true;
         server = new PeerServer(port);
-        applyConnection(null);
         notifyStatus("Listening on port " + server.port());
 
         Thread acceptThread = new Thread(this::acceptLoop, "p2p-accept");
@@ -80,13 +114,16 @@ public final class PeerSession implements AutoCloseable {
     public void startClient(String host, int port, int timeoutMillis) throws IOException {
         NetworkUtils.validatePort(port);
         ensureOpen();
-        clearConnection();
+        clearAllConnections();
         closeServerQuietly();
 
+        hosting = false;
         try {
-            Connection newConnection = PeerClient.connect(host, port, timeoutMillis, new PacketRouter());
+            PacketRouter router = new PacketRouter();
+            Connection newConnection = PeerClient.connect(host, port, timeoutMillis, router);
+            router.attach(newConnection);
             newConnection.start();
-            applyConnection(newConnection);
+            register(newConnection);
             notifyStatus("Connected to " + host.trim() + ":" + port);
         } catch (RuntimeException e) {
             notifyStatus(STATUS_CONNECTION_FAILED);
@@ -98,12 +135,20 @@ public final class PeerSession implements AutoCloseable {
     }
 
     public void sendChat(String message) {
-        ChatManager manager = chatManager;
-        if (manager == null) {
+        if (message == null || message.isBlank()) {
+            return;
+        }
+        if (!isConnected()) {
             notifyStatus(STATUS_NOT_CONNECTED);
             return;
         }
-        manager.sendMessage(message);
+        String text = message.strip();
+        if (hosting) {
+            // The local UI already renders this as an outbound bubble, so only fan it out.
+            broadcastRelay(displayName, text, null);
+        } else {
+            chatManager.sendMessage(text);
+        }
     }
 
     public int allocateFileId() {
@@ -135,22 +180,23 @@ public final class PeerSession implements AutoCloseable {
     }
 
     public void disconnect() {
-        Connection current = connection;
-        if (current != null && current.isOpen()) {
-            try {
-                current.send(Packet.disconnect());
-            } catch (IOException e) {
-                AppLogger.warn("Could not send DISCONNECT: " + e.getMessage());
+        List<Connection> current = hub.peers();
+        for (Connection connection : current) {
+            if (connection.isOpen()) {
+                try {
+                    connection.send(Packet.disconnect());
+                } catch (IOException e) {
+                    AppLogger.warn("Could not send DISCONNECT: " + e.getMessage());
+                }
             }
         }
-        clearConnection();
+        clearAllConnections();
         notifyStatus(STATUS_DISCONNECTED);
         notifyDisconnected(STATUS_DISCONNECTED);
     }
 
     public boolean isConnected() {
-        Connection current = connection;
-        return current != null && current.isOpen();
+        return hub.size() > 0;
     }
 
     public int port() {
@@ -159,18 +205,18 @@ public final class PeerSession implements AutoCloseable {
     }
 
     public String remoteDescription() {
-        Connection current = connection;
-        if (current == null || current.remoteAddress() == null) {
+        Connection primary = hub.primary();
+        if (primary == null || primary.remoteAddress() == null) {
             return "unknown";
         }
-        var address = current.remoteAddress();
+        var address = primary.remoteAddress();
         return address.getAddress().getHostAddress() + ":" + address.getPort();
     }
 
     @Override
     public void close() {
         closed.set(true);
-        clearConnection();
+        clearAllConnections();
         closeServerQuietly();
         sender.shutdownNow();
         try {
@@ -187,46 +233,96 @@ public final class PeerSession implements AutoCloseable {
                 return;
             }
             try {
-                Connection accepted = current.accept(new PacketRouter());
+                PacketRouter router = new PacketRouter();
+                Connection accepted = current.accept(router);
                 if (closed.get()) {
                     accepted.close();
                     return;
                 }
+                router.attach(accepted);
                 accepted.start();
-                applyConnection(accepted);
-                notifyStatus("Connected");
+                register(accepted);
             } catch (IOException e) {
                 if (current != server) {
                     return;
                 }
                 if (!closed.get()) {
                     AppLogger.error("Accept failed", e);
-                    notifyStatus("Connection failed");
+                    notifyStatus(STATUS_CONNECTION_FAILED);
                 }
                 return;
             }
         }
     }
 
-    private void applyConnection(Connection newConnection) {
-        connection = newConnection;
-        if (newConnection == null) {
-            chatManager = null;
-            fileManager.setSink(null);
+    private void register(Connection connection) {
+        hub.addIfAbsent(connection, PeerHub.DEFAULT_NAME);
+        refreshFileSink();
+        sendHelloQuietly(connection);
+        notifyStatus("Connected");
+    }
+
+    private void unregister(Connection connection) {
+        if (connection == null || !hub.remove(connection)) {
+            return;
+        }
+        refreshFileSink();
+        if (hub.size() == 0) {
+            fileManager.onDisconnected();
+            notifyStatus(STATUS_PEER_DISCONNECTED);
+            notifyDisconnected(STATUS_PEER_DISCONNECTED);
         } else {
-            chatManager = new ChatManager(newConnection::send, new ChatBridge());
-            fileManager.setSink(newConnection::send);
+            notifyStatus("Connected");
         }
     }
 
-    private void clearConnection() {
-        Connection current = connection;
-        connection = null;
-        chatManager = null;
-        fileManager.setSink(null);
+    private void refreshFileSink() {
+        Connection primary = hub.primary();
+        fileManager.setSink(primary == null ? null : primary::send);
+    }
+
+    private void clearAllConnections() {
+        List<Connection> current = hub.peers();
+        for (Connection connection : current) {
+            hub.remove(connection);
+            connection.close();
+        }
+        refreshFileSink();
         fileManager.onDisconnected();
-        if (current != null) {
-            current.close();
+    }
+
+    private void sendHelloQuietly(Connection connection) {
+        try {
+            connection.send(Packet.hello(displayName));
+        } catch (IOException e) {
+            AppLogger.warn("Could not send HELLO: " + e.getMessage());
+        }
+    }
+
+    private void sendChatPacket(Packet packet) throws IOException {
+        Connection primary = hub.primary();
+        if (primary == null) {
+            throw new IOException("Not connected");
+        }
+        primary.send(packet);
+    }
+
+    private void broadcastRelay(String sender, String text, Connection except) {
+        Packet relay = Packet.relay(sender, text);
+        for (Connection connection : hub.peersExcept(except)) {
+            try {
+                connection.send(relay);
+            } catch (IOException e) {
+                AppLogger.warn("Could not relay chat to a peer: " + e.getMessage());
+            }
+        }
+    }
+
+    private void deliverChat(String sender, String text) {
+        try {
+            listener.onChatMessage(sender, text);
+        } catch (RuntimeException e) {
+            AppLogger.error("Session listener failed in onChatMessage", e);
         }
     }
 
@@ -287,42 +383,46 @@ public final class PeerSession implements AutoCloseable {
     }
 
     private final class PacketRouter implements Connection.Listener {
+
+        private volatile Connection owner;
+
+        void attach(Connection connection) {
+            this.owner = connection;
+        }
+
         @Override
         public void onPacket(Packet packet) {
             MessageType type = packet.type();
+            Connection source = owner;
             switch (type) {
                 case CHAT -> {
-                    ChatManager manager = chatManager;
-                    if (manager != null) {
-                        manager.handle(packet);
-                    }
+                    String sender = hub.nameOf(source);
+                    chatManager.handle(packet, sender);
+                    broadcastRelay(sender, packet.chatText(), source);
+                }
+                case RELAY -> chatManager.handle(packet, hub.nameOf(source));
+                case HELLO -> {
+                    hub.add(source, packet.helloName());
+                    notifyStatus("Connected");
                 }
                 case FILE_START, FILE_CHUNK, FILE_END, FILE_ACCEPT, FILE_DECLINE -> fileManager.handle(packet);
                 case DISCONNECT -> {
                     AppLogger.info("Peer sent DISCONNECT");
-                    clearConnection();
-                    notifyStatus(STATUS_PEER_DISCONNECTED);
-                    notifyDisconnected(STATUS_PEER_DISCONNECTED);
+                    unregister(source);
                 }
             }
         }
 
         @Override
         public void onDisconnected(Throwable reason) {
-            clearConnection();
-            notifyStatus(STATUS_PEER_DISCONNECTED);
-            notifyDisconnected(STATUS_PEER_DISCONNECTED);
+            unregister(owner);
         }
     }
 
     private final class ChatBridge implements ChatListener {
         @Override
-        public void onChatMessage(String message) {
-            try {
-                listener.onChatMessage("Peer", message);
-            } catch (RuntimeException e) {
-                AppLogger.error("Session listener failed in onChatMessage", e);
-            }
+        public void onChatMessage(String sender, String message) {
+            deliverChat(sender, message);
         }
 
         @Override

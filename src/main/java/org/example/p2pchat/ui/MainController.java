@@ -52,6 +52,7 @@ public final class MainController implements SessionListener {
     private final TextField hostPortField;
     private final TextField peerIpField;
     private final TextField peerPortField;
+    private final TextField displayNameField;
     private final Button startButton;
     private final Label connectionStatusLabel;
 
@@ -92,11 +93,13 @@ public final class MainController implements SessionListener {
         peerIpField.getStyleClass().add("field");
         peerPortField = new TextField("5000");
         peerPortField.getStyleClass().add("field");
+        displayNameField = new TextField(defaultDisplayName());
+        displayNameField.getStyleClass().add("field");
 
         hostFields = new VBox(6,
                 fieldLabel("Local port"),
                 hostPortField,
-                hint("Creates a ServerSocket and waits for one peer."));
+                hint("Hosts a relay: up to two clients connect, and chat is forwarded to everyone."));
         connectFields = new VBox(6,
                 fieldLabel("Peer IP"),
                 peerIpField,
@@ -118,13 +121,15 @@ public final class MainController implements SessionListener {
 
         VBox connectionContent = new VBox(14,
                 title("P2P CHAT"),
-                subtitle("Two instances, one TCP connection, no server in between."),
+                subtitle("Up to three instances chat through one Host; no server in between."),
+                fieldLabel("Display name"),
+                displayNameField,
                 modeRow,
                 hostFields,
                 connectFields,
                 startButton,
                 connectionStatusLabel,
-                hint("Run this app twice: Host on one instance, Connect on the other."));
+                hint("Run the Host first, then Connect two more instances to its port."));
         connectionContent.setMaxWidth(520);
 
         connectionPane = new GridPane();
@@ -284,7 +289,8 @@ public final class MainController implements SessionListener {
         }
         String status = mode == Mode.HOST ? "Listening" : "Connected";
         try {
-            PeerSession newSession = new PeerSession(receivedDirectory(), this,
+            String displayName = requireDisplayName(displayNameField.getText());
+            PeerSession newSession = new PeerSession(receivedDirectory(), this, displayName,
                     FileTypes::canPreviewImage);
             if (mode == Mode.HOST) {
                 int port = parsePort(hostPortField.getText(), "Local port");
@@ -480,7 +486,7 @@ public final class MainController implements SessionListener {
             if (status.startsWith("Listening")) {
                 showSessionPane(false);
             } else if (status.startsWith("Connected")) {
-                peerLabel.setText("Peer: " + remoteDescription());
+                peerLabel.setText(peerSummary());
                 showSessionPane(true);
                 messageField.requestFocus();
             } else if (status.startsWith("Peer disconnected") || status.equals("Disconnected")) {
@@ -498,8 +504,8 @@ public final class MainController implements SessionListener {
     }
 
     @Override
-    public void onChatMessage(String direction, String message) {
-        runOnFx(() -> appendChat(ChatItem.inboundText(message, System.currentTimeMillis())));
+    public void onChatMessage(String sender, String message) {
+        runOnFx(() -> appendChat(ChatItem.inboundText(sender, message, System.currentTimeMillis())));
     }
 
     @Override
@@ -562,6 +568,17 @@ public final class MainController implements SessionListener {
         return session == null ? "unknown" : session.remoteDescription();
     }
 
+    private String peerSummary() {
+        if (session == null) {
+            return "No peer";
+        }
+        int count = session.peerCount();
+        if (count <= 1) {
+            return "Peer: " + remoteDescription();
+        }
+        return count + " peers: " + remoteDescription();
+    }
+
     private static void runOnFx(Runnable action) {
         if (Platform.isFxApplicationThread()) {
             action.run();
@@ -572,6 +589,22 @@ public final class MainController implements SessionListener {
 
     private static Path receivedDirectory() {
         return Paths.get("received");
+    }
+
+    private static String defaultDisplayName() {
+        String user = System.getProperty("user.name");
+        return user == null || user.isBlank() ? "Peer" : user;
+    }
+
+    private static String requireDisplayName(String raw) {
+        String name = raw == null ? "" : raw.trim();
+        if (name.isEmpty()) {
+            throw new IllegalArgumentException("Display name is required");
+        }
+        if (name.length() > 32) {
+            throw new IllegalArgumentException("Display name must be 32 characters or fewer");
+        }
+        return name;
     }
 
     private static int parsePort(String raw, String fieldName) {

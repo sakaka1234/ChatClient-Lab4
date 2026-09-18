@@ -69,6 +69,23 @@ public final class Packet {
         return new Packet(type, buffer.array());
     }
 
+    public static Packet hello(String name) {
+        return new Packet(MessageType.HELLO, name.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public static Packet relay(String sender, String text) {
+        byte[] senderBytes = sender.getBytes(StandardCharsets.UTF_8);
+        if (senderBytes.length > 0xFFFF) {
+            throw new IllegalArgumentException("relay sender too long: " + senderBytes.length + " bytes");
+        }
+        byte[] textBytes = text.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(2 + senderBytes.length + textBytes.length);
+        buffer.putShort((short) senderBytes.length);
+        buffer.put(senderBytes);
+        buffer.put(textBytes);
+        return new Packet(MessageType.RELAY, buffer.array());
+    }
+
     public static Packet disconnect() {
         return new Packet(MessageType.DISCONNECT, new byte[0]);
     }
@@ -84,6 +101,30 @@ public final class Packet {
     public String chatText() {
         requireType(MessageType.CHAT);
         return new String(payload, StandardCharsets.UTF_8);
+    }
+
+    public String helloName() {
+        requireType(MessageType.HELLO);
+        return new String(payload, StandardCharsets.UTF_8);
+    }
+
+    public String relaySender() {
+        requireType(MessageType.RELAY);
+        ByteBuffer buffer = ByteBuffer.wrap(payload);
+        int senderLength = Short.toUnsignedInt(buffer.getShort());
+        byte[] sender = new byte[senderLength];
+        buffer.get(sender);
+        return new String(sender, StandardCharsets.UTF_8);
+    }
+
+    public String relayText() {
+        requireType(MessageType.RELAY);
+        ByteBuffer buffer = ByteBuffer.wrap(payload);
+        int senderLength = Short.toUnsignedInt(buffer.getShort());
+        buffer.position(buffer.position() + senderLength);
+        byte[] text = new byte[buffer.remaining()];
+        buffer.get(text);
+        return new String(text, StandardCharsets.UTF_8);
     }
 
     public int fileId() {

@@ -47,6 +47,11 @@ public final class ChatBubbleFactory {
         bubble.setMaxWidth(Region.USE_PREF_SIZE);
 
         if (item.kind() == ChatItem.Kind.TEXT) {
+            if (!item.outbound() && item.sender() != null && !item.sender().isBlank()) {
+                Label sender = new Label(item.sender());
+                sender.getStyleClass().add("bubble-sender");
+                bubble.getChildren().add(sender);
+            }
             Label text = new Label(item.text());
             text.getStyleClass().add("bubble-text");
             text.setWrapText(true);

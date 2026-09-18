@@ -34,6 +34,20 @@ class ChatItemTest {
     }
 
     @Test
+    void inboundTextRemembersTheSenderName() {
+        ChatItem item = ChatItem.inboundText("An", "hi", 1_000L);
+
+        assertFalse(item.outbound());
+        assertEquals("An", item.sender());
+        assertEquals("hi", item.text());
+    }
+
+    @Test
+    void outboundTextHasNoSenderName() {
+        assertNull(ChatItem.outboundText("hello", 0L).sender());
+    }
+
+    @Test
     void textRejectsBlankContent() {
         assertThrows(IllegalArgumentException.class, () -> ChatItem.outboundText("   ", 0L));
         assertThrows(IllegalArgumentException.class, () -> ChatItem.inboundText(null, 0L));

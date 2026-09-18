@@ -1,6 +1,7 @@
 package org.example.p2pchat.chat;
 
 import org.example.p2pchat.network.PacketSink;
+import org.example.p2pchat.protocol.MessageType;
 import org.example.p2pchat.protocol.Packet;
 import org.example.p2pchat.util.AppLogger;
 
@@ -29,11 +30,26 @@ public final class ChatManager {
         }
     }
 
-    public void handle(Packet packet) {
+    /**
+     * Handles an incoming text packet.
+     *
+     * @param packet a {@code CHAT} (sender supplied by the router) or {@code RELAY} packet, whose
+     *               payload already carries the original sender's display name
+     * @param sender display name to attribute a plain {@code CHAT} to; ignored for {@code RELAY}
+     */
+    public void handle(Packet packet, String sender) {
         try {
-            String message = packet.chatText();
+            String name;
+            String message;
+            if (packet.type() == MessageType.RELAY) {
+                name = packet.relaySender();
+                message = packet.relayText();
+            } else {
+                name = sender;
+                message = packet.chatText();
+            }
             AppLogger.info("Receiving CHAT packet");
-            listener.onChatMessage(message);
+            listener.onChatMessage(name, message);
         } catch (RuntimeException e) {
             reportError("Received invalid chat packet: " + describe(e));
         }

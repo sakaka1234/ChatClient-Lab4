@@ -15,6 +15,7 @@ public final class ChatItem {
     private final Kind kind;
     private final boolean outbound;
     private final long timestamp;
+    private final String sender;
     private final String text;
     private final int fileId;
     private final String fileName;
@@ -26,11 +27,12 @@ public final class ChatItem {
     private Status status;
     private String detail;
 
-    private ChatItem(Kind kind, boolean outbound, long timestamp, String text,
+    private ChatItem(Kind kind, boolean outbound, long timestamp, String sender, String text,
                      int fileId, String fileName, long totalBytes, Path sourcePath, Status status) {
         this.kind = kind;
         this.outbound = outbound;
         this.timestamp = timestamp;
+        this.sender = sender;
         this.text = text;
         this.fileId = fileId;
         this.fileName = fileName;
@@ -41,30 +43,34 @@ public final class ChatItem {
     }
 
     public static ChatItem outboundText(String text, long timestamp) {
-        return textItem(text, true, timestamp);
+        return textItem(null, text, true, timestamp);
     }
 
     public static ChatItem inboundText(String text, long timestamp) {
-        return textItem(text, false, timestamp);
+        return textItem(null, text, false, timestamp);
     }
 
-    private static ChatItem textItem(String text, boolean outbound, long timestamp) {
+    public static ChatItem inboundText(String sender, String text, long timestamp) {
+        return textItem(sender, text, false, timestamp);
+    }
+
+    private static ChatItem textItem(String sender, String text, boolean outbound, long timestamp) {
         if (text == null || text.isBlank()) {
             throw new IllegalArgumentException("Chat text must not be blank");
         }
-        return new ChatItem(Kind.TEXT, outbound, timestamp, text.strip(),
+        return new ChatItem(Kind.TEXT, outbound, timestamp, sender, text.strip(),
                 0, null, 0, null, Status.COMPLETED);
     }
 
     public static ChatItem outboundFile(int fileId, String fileName, long totalBytes, Path sourcePath, long timestamp) {
         validateFileArgs(fileId, fileName, totalBytes);
-        return new ChatItem(Kind.FILE, true, timestamp, null,
+        return new ChatItem(Kind.FILE, true, timestamp, null, null,
                 fileId, fileName, totalBytes, sourcePath, Status.WAITING_FOR_DECISION);
     }
 
     public static ChatItem inboundFile(int fileId, String fileName, long totalBytes, long timestamp) {
         validateFileArgs(fileId, fileName, totalBytes);
-        return new ChatItem(Kind.FILE, false, timestamp, null,
+        return new ChatItem(Kind.FILE, false, timestamp, null, null,
                 fileId, fileName, totalBytes, null, Status.WAITING_FOR_DECISION);
     }
 
@@ -90,6 +96,10 @@ public final class ChatItem {
 
     public long timestamp() {
         return timestamp;
+    }
+
+    public String sender() {
+        return sender;
     }
 
     public String text() {
@@ -222,7 +232,8 @@ public final class ChatItem {
     @Override
     public String toString() {
         if (kind == Kind.TEXT) {
-            return (outbound ? "You: " : "Peer: ") + text;
+            String who = outbound ? "You" : (sender == null || sender.isBlank() ? "Peer" : sender);
+            return who + ": " + text;
         }
         return "File[" + fileName + ", " + status + ", " + transferredBytes + "/" + totalBytes + "]";
     }

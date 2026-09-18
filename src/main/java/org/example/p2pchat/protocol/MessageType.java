@@ -10,7 +10,9 @@ public enum MessageType {
     FILE_END(4),
     DISCONNECT(5),
     FILE_ACCEPT(6),
-    FILE_DECLINE(7);
+    FILE_DECLINE(7),
+    HELLO(8),
+    RELAY(9);
 
     private final int id;
 

@@ -20,8 +20,8 @@ class ChatManagerTest {
         final List<String> errors = new ArrayList<>();
 
         @Override
-        public void onChatMessage(String message) {
-            messages.add(message);
+        public void onChatMessage(String sender, String message) {
+            messages.add(sender + ":" + message);
         }
 
         @Override
@@ -55,13 +55,23 @@ class ChatManagerTest {
     }
 
     @Test
-    void deliversIncomingChatToListener() {
+    void deliversIncomingChatToListenerWithTheGivenSender() {
         RecordingListener listener = new RecordingListener();
         ChatManager manager = new ChatManager(new CollectingSink(), listener);
 
-        manager.handle(Packet.chat("hi from peer"));
+        manager.handle(Packet.chat("hi from peer"), "An");
 
-        assertEquals(List.of("hi from peer"), listener.messages);
+        assertEquals(List.of("An:hi from peer"), listener.messages);
+    }
+
+    @Test
+    void deliversRelayPacketUsingTheNameInsideThePacket() {
+        RecordingListener listener = new RecordingListener();
+        ChatManager manager = new ChatManager(new CollectingSink(), listener);
+
+        manager.handle(Packet.relay("Binh", "xin chao"), "ignored");
+
+        assertEquals(List.of("Binh:xin chao"), listener.messages);
     }
 
     @Test
@@ -69,7 +79,7 @@ class ChatManagerTest {
         RecordingListener listener = new RecordingListener();
         ChatManager manager = new ChatManager(new CollectingSink(), listener);
 
-        manager.handle(Packet.fileEnd(1));
+        manager.handle(Packet.fileEnd(1), "An");
 
         assertEquals(1, listener.errors.size());
     }
@@ -91,7 +101,7 @@ class ChatManagerTest {
     void listenerExceptionsOnlyReportedToErrors() {
         ChatListener exploding = new ChatListener() {
             @Override
-            public void onChatMessage(String message) {
+            public void onChatMessage(String sender, String message) {
                 throw new RuntimeException("listener bug");
             }
 
@@ -102,7 +112,7 @@ class ChatManagerTest {
         };
         ChatManager manager = new ChatManager(new CollectingSink(), exploding);
 
-        manager.handle(Packet.chat("boom"));
+        manager.handle(Packet.chat("boom"), "An");
     }
 
     @Test
