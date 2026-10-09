@@ -6,9 +6,8 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
-import java.util.Random;
+import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -34,7 +33,54 @@ class PacketCodecTest {
 
         assertEquals(MessageType.CHAT, result.type());
         assertEquals("", result.chatText());
-        assertEquals(0, result.payload().length);
+        // scope (1 byte) + target count (2 bytes); the text itself is empty.
+        assertEquals(3, result.payload().length);
+        assertEquals(ChatScope.BROADCAST, result.chatScope());
+        assertEquals(List.of(), result.chatTargets());
+    }
+
+    @Test
+    void unicastChatSurvivesRoundTrip() throws IOException {
+        Packet result = roundTrip(Packet.chat(ChatScope.UNICAST, List.of(3), "chi rieng cho ban"));
+
+        assertEquals("chi rieng cho ban", result.chatText());
+        assertEquals(ChatScope.UNICAST, result.chatScope());
+        assertEquals(List.of(3), result.chatTargets());
+    }
+
+    @Test
+    void multicastChatSurvivesRoundTrip() throws IOException {
+        Packet result = roundTrip(Packet.chat(ChatScope.MULTICAST, List.of(2, 4, 5), "hop nhom"));
+
+        assertEquals("hop nhom", result.chatText());
+        assertEquals(ChatScope.MULTICAST, result.chatScope());
+        assertEquals(List.of(2, 4, 5), result.chatTargets());
+    }
+
+    @Test
+    void relaySurvivesRoundTripWithItsAddressingBlock() throws IOException {
+        Packet result = roundTrip(Packet.relay("Cường", ChatScope.MULTICAST, List.of(1, 4), "hi"));
+
+        assertEquals(MessageType.RELAY, result.type());
+        assertEquals("Cường", result.relaySender());
+        assertEquals(ChatScope.MULTICAST, result.relayScope());
+        assertEquals(List.of(1, 4), result.relayTargets());
+        assertEquals("hi", result.relayText());
+    }
+
+    @Test
+    void rosterSurvivesRoundTrip() throws IOException {
+        Packet result = roundTrip(Packet.roster(2, List.of(
+                new Packet.RosterEntry(1, "Chủ nhà"),
+                new Packet.RosterEntry(2, "An"),
+                new Packet.RosterEntry(7, "Bình"))));
+
+        assertEquals(MessageType.ROSTER, result.type());
+        assertEquals(2, result.rosterSelfId());
+        assertEquals(List.of(
+                new Packet.RosterEntry(1, "Chủ nhà"),
+                new Packet.RosterEntry(2, "An"),
+                new Packet.RosterEntry(7, "Bình")), result.rosterEntries());
     }
 
     @Test
@@ -47,81 +93,10 @@ class PacketCodecTest {
     }
 
     @Test
-    void fileStartSurvivesRoundTrip() throws IOException {
-        Packet result = roundTrip(Packet.fileStart(42, "archive.tar.gz", 9_007_199_254_740_993L));
-
-        assertEquals(MessageType.FILE_START, result.type());
-        assertEquals(42, result.fileId());
-        assertEquals("archive.tar.gz", result.fileName());
-        assertEquals(9_007_199_254_740_993L, result.fileSize());
-    }
-
-    @Test
-    void fileChunkSurvivesRoundTrip() throws IOException {
-        byte[] data = new byte[64 * 1024];
-        new Random(42).nextBytes(data);
-
-        Packet result = roundTrip(Packet.fileChunk(3, 17, data));
-
-        assertEquals(MessageType.FILE_CHUNK, result.type());
-        assertEquals(3, result.fileId());
-        assertEquals(17, result.chunkIndex());
-        assertArrayEquals(data, result.chunkData());
-    }
-
-    @Test
-    void emptyChunkSurvivesRoundTrip() throws IOException {
-        Packet result = roundTrip(Packet.fileChunk(1, 0, new byte[0]));
-
-        assertEquals(0, result.chunkData().length);
-    }
-
-    @Test
-    void fileEndSurvivesRoundTrip() throws IOException {
-        Packet result = roundTrip(Packet.fileEnd(99));
-
-        assertEquals(MessageType.FILE_END, result.type());
-        assertEquals(99, result.fileId());
-    }
-
-    @Test
     void disconnectSurvivesRoundTrip() throws IOException {
         Packet result = roundTrip(Packet.disconnect());
 
         assertEquals(MessageType.DISCONNECT, result.type());
-    }
-
-    @Test
-    void fileAcceptSurvivesRoundTrip() throws IOException {
-        Packet result = roundTrip(Packet.fileAccept(12));
-
-        assertEquals(MessageType.FILE_ACCEPT, result.type());
-        assertEquals(12, result.fileId());
-    }
-
-    @Test
-    void fileDeclineSurvivesRoundTrip() throws IOException {
-        Packet result = roundTrip(Packet.fileDecline(12));
-
-        assertEquals(MessageType.FILE_DECLINE, result.type());
-        assertEquals(12, result.fileId());
-    }
-
-    @Test
-    void acceptAndDeclineCarryTwoBytePayload() throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        PacketCodec.write(out, Packet.fileAccept(300));
-
-        byte[] bytes = out.toByteArray();
-
-        assertEquals(7, bytes.length);
-        assertEquals(MessageType.FILE_ACCEPT.id(), bytes[0] & 0xFF);
-        assertEquals(0, bytes[1]);
-        assertEquals(0, bytes[2]);
-        assertEquals(0, bytes[3]);
-        assertEquals(2, bytes[4]);
-        assertEquals(1, bytes[5] & 0xFF);
-        assertEquals(44, bytes[6] & 0xFF);
     }
 
     @Test
@@ -169,11 +144,15 @@ class PacketCodecTest {
 
         byte[] bytes = out.toByteArray();
 
-        assertEquals(5 + 3, bytes.length);
+        // frame header (1 + 4) + broadcast addressing (1 + 2) + "Hey"
+        assertEquals(5 + 3 + 3, bytes.length);
         assertEquals(MessageType.CHAT.id(), bytes[0] & 0xFF);
         assertEquals(0, bytes[1]);
         assertEquals(0, bytes[2]);
         assertEquals(0, bytes[3]);
-        assertEquals(3, bytes[4]);
+        assertEquals(6, bytes[4]);
+        assertEquals(ChatScope.BROADCAST.id(), bytes[5] & 0xFF);
+        assertEquals(0, bytes[6]);
+        assertEquals(0, bytes[7]);
     }
 }

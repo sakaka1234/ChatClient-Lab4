@@ -8,7 +8,7 @@ import org.example.p2pchat.util.AppLogger;
 
 public class Main extends Application {
 
-    private static final String TITLE = "P2P Chat";
+    private static final String TITLE = "Chat";
 
     @Override
     public void start(Stage stage) {

@@ -34,18 +34,4 @@ public final class NetworkUtils {
             throw new IOException("Invalid or unknown address: " + host, e);
         }
     }
-
-    public static String formatBytes(long bytes) {
-        if (bytes < 1024) {
-            return bytes + " B";
-        }
-        String[] units = {"KB", "MB", "GB", "TB"};
-        double value = bytes;
-        int unit = -1;
-        while (value >= 1024 && unit < units.length - 1) {
-            value /= 1024;
-            unit++;
-        }
-        return String.format("%.2f %s", value, units[unit]);
-    }
 }

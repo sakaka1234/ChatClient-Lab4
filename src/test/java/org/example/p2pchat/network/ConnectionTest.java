@@ -15,7 +15,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -26,7 +25,7 @@ class ConnectionTest {
 
     private static final long WAIT_SECONDS = 5;
 
-    private PeerServer server;
+    private Acceptor server;
     private Connection serverSide;
     private Connection clientSide;
 
@@ -72,7 +71,7 @@ class ConnectionTest {
     }
 
     private void establishPair(Recorder serverRecorder, Recorder clientRecorder) throws Exception {
-        server = new PeerServer(0);
+        server = new Acceptor(0);
         CountDownLatch accepted = new CountDownLatch(1);
         AtomicReference<IOException> acceptFailure = new AtomicReference<>();
 
@@ -87,7 +86,7 @@ class ConnectionTest {
         acceptor.setDaemon(true);
         acceptor.start();
 
-        clientSide = PeerClient.connect("127.0.0.1", server.port(), 5000, clientRecorder);
+        clientSide = Connector.connect("127.0.0.1", server.port(), 5000, clientRecorder);
 
         assertTrue(accepted.await(WAIT_SECONDS, TimeUnit.SECONDS), "server did not accept in time");
         if (acceptFailure.get() != null) {
@@ -146,20 +145,22 @@ class ConnectionTest {
     }
 
     @Test
-    void deliversLargeBinaryChunkIntact() throws Exception {
+    void deliversALargeChatPayloadIntact() throws Exception {
         Recorder serverRecorder = new Recorder();
         Recorder clientRecorder = new Recorder();
         establishPair(serverRecorder, clientRecorder);
 
-        byte[] data = new byte[1024 * 1024];
-        new Random(7).nextBytes(data);
-        clientSide.send(Packet.fileChunk(1, 0, data));
+        // 1 MiB of text: a frame far larger than any socket buffer, so it cannot arrive in one read.
+        Random random = new Random(7);
+        StringBuilder builder = new StringBuilder(1024 * 1024);
+        for (int i = 0; i < 1024 * 1024; i++) {
+            builder.append((char) ('a' + random.nextInt(26)));
+        }
+        String text = builder.toString();
 
-        Packet received = serverRecorder.awaitPacket();
+        clientSide.send(Packet.chat(text));
 
-        assertEquals(1, received.fileId());
-        assertEquals(0, received.chunkIndex());
-        assertArrayEquals(data, received.chunkData());
+        assertEquals(text, serverRecorder.awaitPacket().chatText());
     }
 
     @Test
@@ -174,7 +175,7 @@ class ConnectionTest {
     }
 
     @Test
-    void listenerNotifiedWhenPeerClosesSocket() throws Exception {
+    void listenerNotifiedWhenTheClientClosesItsSocket() throws Exception {
         Recorder serverRecorder = new Recorder();
         Recorder clientRecorder = new Recorder();
         establishPair(serverRecorder, clientRecorder);
@@ -182,7 +183,7 @@ class ConnectionTest {
         clientSide.close();
 
         assertTrue(serverRecorder.closed.await(WAIT_SECONDS, TimeUnit.SECONDS),
-                "server listener was not notified about the closed peer");
+                "server listener was not notified that the client closed its socket");
         assertFalse(serverSide.isOpen());
     }
 
@@ -207,37 +208,37 @@ class ConnectionTest {
     @Test
     void connectingToClosedPortFails() throws IOException {
         int freePort;
-        try (PeerServer probe = new PeerServer(0)) {
+        try (Acceptor probe = new Acceptor(0)) {
             freePort = probe.port();
         }
 
         assertThrows(IOException.class,
-                () -> PeerClient.connect("127.0.0.1", freePort, 2000, new Recorder()));
+                () -> Connector.connect("127.0.0.1", freePort, 2000, new Recorder()));
     }
 
     @Test
     void connectingToUnroutableAddressTimesOut() {
         assertThrows(IOException.class,
-                () -> PeerClient.connect("192.0.2.1", 65000, 500, new Recorder()));
+                () -> Connector.connect("192.0.2.1", 65000, 500, new Recorder()));
     }
 
     @Test
     void serverRejectsInvalidPort() {
-        assertThrows(IllegalArgumentException.class, () -> new PeerServer(70000));
-        assertThrows(IllegalArgumentException.class, () -> new PeerServer(-1));
+        assertThrows(IllegalArgumentException.class, () -> new Acceptor(70000));
+        assertThrows(IllegalArgumentException.class, () -> new Acceptor(-1));
     }
 
     @Test
     void connectRejectsInvalidPort() {
         assertThrows(IllegalArgumentException.class,
-                () -> PeerClient.connect("127.0.0.1", 0, 1000, new Recorder()));
+                () -> Connector.connect("127.0.0.1", 0, 1000, new Recorder()));
     }
 
     @Test
     void secondBindOnUsedPortFails() throws Exception {
-        try (PeerServer first = new PeerServer(0);
-             PeerServer second = new PeerServer(0)) {
-            assertThrows(IOException.class, () -> new PeerServer(first.port()));
+        try (Acceptor first = new Acceptor(0);
+             Acceptor second = new Acceptor(0)) {
+            assertThrows(IOException.class, () -> new Acceptor(first.port()));
             assertTrue(second.port() > 0);
         }
     }
@@ -245,10 +246,10 @@ class ConnectionTest {
     @Test
     void clientConnectFailureUsesConnectExceptionType() {
         assertThrows(ConnectException.class, () -> {
-            try (PeerServer probe = new PeerServer(0)) {
+            try (Acceptor probe = new Acceptor(0)) {
                 int port = probe.port();
                 probe.close();
-                PeerClient.connect("127.0.0.1", port, 1000, new Recorder());
+                Connector.connect("127.0.0.1", port, 1000, new Recorder());
             }
         });
     }

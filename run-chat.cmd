@@ -1,16 +1,18 @@
 @echo off
 setlocal enabledelayedexpansion
 
-rem Launch one P2P Chat peer instance.
-rem Usage: run-peer.cmd [peer-name]
-rem   e.g. run-peer.cmd A
-rem Run it twice (two terminals, or double-click twice) to chat between the two.
+rem Launch one chat instance.
+rem Usage: run-chat.cmd [name]
+rem   e.g. run-chat.cmd Server
+rem        run-chat.cmd An
+rem Start one instance, choose SERVER, press Start Server. Then start more instances,
+rem choose CLIENT, and point them at the server's address.
 
-set "PEER=%~1"
-if "%PEER%"=="" set "PEER=Peer"
+set "NAME=%~1"
+if "%NAME%"=="" set "NAME=Client"
 
 set "ROOT=%~dp0"
-set "JAR=%ROOT%target\P2PChat.jar"
+set "JAR=%ROOT%target\Chat.jar"
 
 if not exist "%JAR%" (
     echo [ERROR] %JAR% not found.
@@ -42,7 +44,7 @@ if not defined JAVA_EXE (
 )
 
 echo ================================================
-echo  P2P Chat - instance: %PEER%
+echo  Chat - instance: %NAME%
 echo  Java: %JAVA_EXE%
 echo ================================================
 echo.

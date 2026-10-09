@@ -5,12 +5,16 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Parent;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.CustomMenuItem;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
-import javafx.scene.control.ProgressBar;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
@@ -18,95 +22,126 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import javafx.stage.DirectoryChooser;
-import javafx.stage.FileChooser;
 import javafx.stage.Stage;
-import org.example.p2pchat.session.PeerSession;
+import org.example.p2pchat.protocol.ChatScope;
+import org.example.p2pchat.session.ChatSession;
+import org.example.p2pchat.session.ClientInfo;
 import org.example.p2pchat.session.SessionListener;
 import org.example.p2pchat.util.NetworkUtils;
 
-import java.io.File;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 
+/**
+ * The application window: a start form, and one of two session views depending on which side of the
+ * connection this instance is.
+ *
+ * <p>A <b>client</b> gets the chat view — the message list, the <em>To:</em> picker and the message
+ * box. A <b>server</b> gets the relay view — the client list and the relay log, and nothing to type
+ * into, because a server copies messages between its clients rather than taking part in them. Both
+ * views are built up front and swapped by {@link #showConnectionPane()} and friends; the window is
+ * never rebuilt.
+ */
 public final class MainController implements SessionListener {
 
-    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss");
-
+    /** Which connection form the start screen offers. */
     private enum Mode {
-        HOST, CONNECT
+        SERVER, CLIENT
     }
+
+    /** How many relay-log lines are kept before the oldest are dropped. */
+    private static final int MAX_LOG_LINES = 500;
 
     private final Stage stage;
     private final StackPane root = new StackPane();
 
     private final GridPane connectionPane;
-    private final VBox sessionPane;
+    private final VBox serverPane;
+    private final VBox clientPane;
 
-    private final Button modeHostButton;
-    private final Button modeConnectButton;
-    private final VBox hostFields;
-    private final VBox connectFields;
-    private final TextField hostPortField;
-    private final TextField peerIpField;
-    private final TextField peerPortField;
+    private final Button modeServerButton;
+    private final Button modeClientButton;
+    private final VBox serverFields;
+    private final VBox clientFields;
+    private final TextField listenPortField;
+    private final TextField serverIpField;
+    private final TextField serverPortField;
     private final TextField displayNameField;
     private final Button startButton;
     private final Label connectionStatusLabel;
 
+    // ------------------------------------------------------------- the server
+
+    private final Label serverSummaryLabel = new Label(":/");
+    private final Label serverStatusLabel = new Label("Disconnected");
+    private final ListView<String> serverClientList = new ListView<>();
+    private final ListView<String> relayLog = new ListView<>();
+    private final List<String> relayLogLines = new ArrayList<>();
+
+    // ------------------------------------------------------------- the client
+
     private final ListView<ChatItem> chatList = new ListView<>();
     private final TextArea messageField = new TextArea();
-    private final ListView<String> transferLogList = new ListView<>();
-    private final ProgressBar fileProgressBar = new ProgressBar(0);
-    private final Label fileInfoLabel = new Label("No transfer yet");
-    private final Label filePercentLabel = new Label("0%");
-    private final Label fileStatusLabel = new Label("Idle");
-    private final Label peerLabel = new Label("No peer");
-    private final Label sessionStatusLabel = new Label("Disconnected");
+    private final Label clientLabel = new Label("No server");
+    private final Label clientStatusLabel = new Label("Disconnected");
+    private final Label clientTitleLabel = title("CLIENT");
 
-    private final ChatBubbleFactory bubbleFactory =
-            new ChatBubbleFactory(this::onSaveAs, this::onOpen, this::onAcceptOffer, this::onDeclineOffer);
+    /** The name this client connected under, shown beside CLIENT so two windows are told apart. */
+    private String selfName = "";
+
+    /** Address picker for the next message: nothing checked means "everyone". */
+    private final MenuButton recipientButton = new MenuButton("Everyone");
+    private final Set<Integer> selectedTargets = new LinkedHashSet<>();
+    private List<ClientInfo> clientDirectory = List.of();
+    private int selfClientId = ChatSession.UNASSIGNED_CLIENT_ID;
+
+    private final ChatBubbleFactory bubbleFactory = new ChatBubbleFactory();
     private final ChatItemTracker chatItems = new ChatItemTracker();
 
-    private PeerSession session;
-    private Mode mode = Mode.HOST;
+    private ChatSession session;
+    private Mode mode = Mode.SERVER;
     private boolean busy;
+
+    /** True between the first line of {@link #onStart()} and the pane it settles on. */
+    private boolean starting;
 
     public MainController(Stage stage) {
         this.stage = stage;
 
-        modeHostButton = new Button("HOST");
-        modeHostButton.getStyleClass().add("mode-button");
-        modeHostButton.setMaxWidth(Double.MAX_VALUE);
-        modeHostButton.setOnAction(event -> setMode(Mode.HOST));
+        modeServerButton = new Button("SERVER");
+        modeServerButton.getStyleClass().add("mode-button");
+        modeServerButton.setMaxWidth(Double.MAX_VALUE);
+        modeServerButton.setOnAction(event -> setMode(Mode.SERVER));
 
-        modeConnectButton = new Button("CONNECT");
-        modeConnectButton.getStyleClass().add("mode-button");
-        modeConnectButton.setMaxWidth(Double.MAX_VALUE);
-        modeConnectButton.setOnAction(event -> setMode(Mode.CONNECT));
+        modeClientButton = new Button("CLIENT");
+        modeClientButton.getStyleClass().add("mode-button");
+        modeClientButton.setMaxWidth(Double.MAX_VALUE);
+        modeClientButton.setOnAction(event -> setMode(Mode.CLIENT));
 
-        hostPortField = new TextField("5000");
-        hostPortField.getStyleClass().add("field");
-        peerIpField = new TextField("127.0.0.1");
-        peerIpField.getStyleClass().add("field");
-        peerPortField = new TextField("5000");
-        peerPortField.getStyleClass().add("field");
+        listenPortField = new TextField("5000");
+        listenPortField.getStyleClass().add("field");
+        serverIpField = new TextField("127.0.0.1");
+        serverIpField.getStyleClass().add("field");
+        serverPortField = new TextField("5000");
+        serverPortField.getStyleClass().add("field");
         displayNameField = new TextField(defaultDisplayName());
         displayNameField.getStyleClass().add("field");
 
-        hostFields = new VBox(6,
+        serverFields = new VBox(6,
                 fieldLabel("Local port"),
-                hostPortField,
-                hint("Hosts a relay: up to two clients connect, and chat is forwarded to everyone."));
-        connectFields = new VBox(6,
-                fieldLabel("Peer IP"),
-                peerIpField,
-                fieldLabel("Peer port"),
-                peerPortField);
+                listenPortField,
+                hint("Accepts any number of clients, keeps the client list, and copies each message "
+                        + "only to the clients it is addressed to. The server relays; it never chats "
+                        + "itself."));
+        clientFields = new VBox(6,
+                fieldLabel("Server IP"),
+                serverIpField,
+                fieldLabel("Server port"),
+                serverPortField);
 
-        startButton = new Button("Start Host");
+        startButton = new Button("Start Server");
         startButton.getStyleClass().add("primary-button");
         startButton.setMaxWidth(Double.MAX_VALUE);
         startButton.setOnAction(event -> onStart());
@@ -115,21 +150,22 @@ public final class MainController implements SessionListener {
         connectionStatusLabel.getStyleClass().add("status-label");
         connectionStatusLabel.setWrapText(true);
 
-        HBox modeRow = new HBox(8, modeHostButton, modeConnectButton);
-        HBox.setHgrow(modeHostButton, Priority.ALWAYS);
-        HBox.setHgrow(modeConnectButton, Priority.ALWAYS);
+        HBox modeRow = new HBox(8, modeServerButton, modeClientButton);
+        HBox.setHgrow(modeServerButton, Priority.ALWAYS);
+        HBox.setHgrow(modeClientButton, Priority.ALWAYS);
 
         VBox connectionContent = new VBox(14,
-                title("P2P CHAT"),
-                subtitle("Up to three instances chat through one Host; no server in between."),
+                title("CHAT"),
+                subtitle("A server relays between its clients - send to one client, to a group, or to "
+                        + "everyone. The server itself takes no part in the conversation."),
                 fieldLabel("Display name"),
                 displayNameField,
                 modeRow,
-                hostFields,
-                connectFields,
+                serverFields,
+                clientFields,
                 startButton,
                 connectionStatusLabel,
-                hint("Run the Host first, then Connect two more instances to its port."));
+                hint("Run one instance as the Server, then connect one or more clients to its port."));
         connectionContent.setMaxWidth(520);
 
         connectionPane = new GridPane();
@@ -139,15 +175,17 @@ public final class MainController implements SessionListener {
         connectionPane.setPadding(new Insets(28));
         connectionPane.add(connectionContent, 0, 0);
 
-        sessionPane = buildSessionPane();
+        serverPane = buildServerPane();
+        clientPane = buildClientPane();
 
         root.getStyleClass().add("app-backdrop");
-        root.getChildren().addAll(connectionPane, sessionPane);
+        root.getChildren().addAll(connectionPane, serverPane, clientPane);
         root.setPadding(new Insets(24));
 
         chatItems.addChangeListener(() -> runOnFx(this::syncChatList));
 
-        setMode(Mode.HOST);
+        setMode(Mode.SERVER);
+        showConnectionPane();
         Platform.runLater(connectionPane::requestFocus);
     }
 
@@ -161,7 +199,53 @@ public final class MainController implements SessionListener {
         }
     }
 
-    private VBox buildSessionPane() {
+    // ------------------------------------------------------------------ panes
+
+    /**
+     * The server view: who is connected, and what the server has relayed. There is deliberately no
+     * message box and no recipient picker — a server has nothing to send.
+     */
+    private VBox buildServerPane() {
+        serverClientList.getStyleClass().add("client-list");
+        serverClientList.setPlaceholder(hint("No clients connected yet."));
+        VBox clientsPanel = new VBox(10, panelTitle("Clients"), serverClientList);
+        clientsPanel.getStyleClass().add("panel");
+        clientsPanel.setPrefWidth(260);
+        clientsPanel.setMinWidth(200);
+        VBox.setVgrow(serverClientList, Priority.ALWAYS);
+
+        relayLog.getStyleClass().add("server-log");
+        relayLog.setPlaceholder(hint("Nothing relayed yet."));
+        VBox logPanel = new VBox(10, panelTitle("Relay log"), relayLog);
+        logPanel.getStyleClass().add("panel");
+        VBox.setVgrow(relayLog, Priority.ALWAYS);
+
+        HBox body = new HBox(16, clientsPanel, logPanel);
+        HBox.setHgrow(logPanel, Priority.ALWAYS);
+        VBox.setVgrow(body, Priority.ALWAYS);
+
+        Button stopButton = new Button("Stop Server");
+        stopButton.getStyleClass().add("danger-button");
+        stopButton.setOnAction(event -> endSession());
+
+        serverSummaryLabel.getStyleClass().addAll("summary-label", "server-summary");
+        serverStatusLabel.getStyleClass().add("pill");
+        HBox topbar = new HBox(12, title("SERVER"));
+        topbar.setAlignment(Pos.CENTER_LEFT);
+        Region topSpacer = new Region();
+        HBox.setHgrow(topSpacer, Priority.ALWAYS);
+        topbar.getChildren().addAll(topSpacer, serverSummaryLabel, serverStatusLabel, stopButton);
+        topbar.getStyleClass().add("topbar");
+
+        VBox pane = new VBox(16, topbar, body);
+        pane.getStyleClass().add("session-root");
+        pane.setVisible(false);
+        pane.setManaged(false);
+        return pane;
+    }
+
+    /** The client view: the conversation, plus the address picker that turns it into unicast/multicast/broadcast. */
+    private VBox buildClientPane() {
         VBox chatPanel = new VBox(10, panelTitle("Chat"));
         chatList.getStyleClass().add("chat-list");
         chatList.setPlaceholder(hint("No messages yet."));
@@ -196,136 +280,165 @@ public final class MainController implements SessionListener {
         sendButton.setMaxWidth(Double.MAX_VALUE);
         sendButton.setOnAction(event -> onSend());
 
-        chatPanel.getChildren().addAll(chatList, messageField, sendButton);
+        recipientButton.getStyleClass().add("recipient-button");
+        recipientButton.setMaxWidth(Double.MAX_VALUE);
+        recipientButton.setTooltip(new Tooltip(
+                "Nothing checked -> everyone (broadcast)\n"
+                        + "One client -> private (unicast)\n"
+                        + "Two or more -> group (multicast)"));
+        rebuildRecipientMenu();
+
+        HBox recipientRow = new HBox(8, fieldLabel("To:"), recipientButton);
+        recipientRow.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(recipientButton, Priority.ALWAYS);
+
+        chatPanel.getChildren().addAll(
+                chatList,
+                recipientRow,
+                hint("Every message carries an address: the server copies it only to the clients named "
+                        + "in it."),
+                messageField,
+                sendButton);
         chatPanel.getStyleClass().add("panel");
         GridPane.setHgrow(chatPanel, Priority.ALWAYS);
         GridPane.setVgrow(chatPanel, Priority.ALWAYS);
 
-        VBox filePanel = new VBox(10, panelTitle("File transfer"));
-
-        Button sendFileButton = new Button("Send File");
-        sendFileButton.getStyleClass().add("ghost-button");
-        sendFileButton.setMaxWidth(Double.MAX_VALUE);
-        sendFileButton.setOnAction(event -> onSendFile());
-
-        fileInfoLabel.getStyleClass().add("field-hint");
-        fileInfoLabel.setWrapText(true);
-
-        fileProgressBar.setMaxWidth(Double.MAX_VALUE);
-        fileProgressBar.getStyleClass().add("file-progress");
-
-        filePercentLabel.getStyleClass().add("file-percent");
-        fileStatusLabel.getStyleClass().add("field-hint");
-        fileStatusLabel.setWrapText(true);
-
-        transferLogList.getStyleClass().add("transfer-log");
-        transferLogList.setPlaceholder(hint("Transfer events appear here."));
-
         Button disconnectButton = new Button("Disconnect");
         disconnectButton.getStyleClass().add("danger-button");
-        disconnectButton.setMaxWidth(Double.MAX_VALUE);
-        disconnectButton.setOnAction(event -> onDisconnect());
+        disconnectButton.setOnAction(event -> endSession());
 
-        Region spacer = new Region();
-        VBox.setVgrow(spacer, Priority.ALWAYS);
-        VBox.setVgrow(transferLogList, Priority.ALWAYS);
-
-        filePanel.getChildren().addAll(
-                sendFileButton,
-                fileInfoLabel,
-                fileProgressBar,
-                filePercentLabel,
-                fileStatusLabel,
-                spacer,
-                panelTitle("Transfer log"),
-                transferLogList,
-                disconnectButton);
-        filePanel.getStyleClass().add("panel");
-        GridPane.setVgrow(filePanel, Priority.ALWAYS);
-
-        HBox topbar = new HBox(12, title("P2P CHAT"));
+        clientLabel.getStyleClass().addAll("summary-label", "client-summary");
+        clientStatusLabel.getStyleClass().add("pill");
+        clientTitleLabel.getStyleClass().addAll("client-title", "client-role");
+        HBox topbar = new HBox(12, clientTitleLabel);
         topbar.setAlignment(Pos.CENTER_LEFT);
         Region topSpacer = new Region();
         HBox.setHgrow(topSpacer, Priority.ALWAYS);
-        peerLabel.getStyleClass().add("peer-label");
-        sessionStatusLabel.getStyleClass().add("pill");
-        topbar.getChildren().addAll(topSpacer, peerLabel, sessionStatusLabel);
+        topbar.getChildren().addAll(topSpacer, clientLabel, clientStatusLabel, disconnectButton);
         topbar.getStyleClass().add("topbar");
 
-        GridPane grid = new GridPane();
-        grid.setHgap(16);
-        grid.setVgap(16);
-        grid.getColumnConstraints().add(percent(60));
-        grid.getColumnConstraints().add(percent(40));
-        grid.add(chatPanel, 0, 0);
-        grid.add(filePanel, 1, 0);
-        VBox.setVgrow(grid, Priority.ALWAYS);
-
-        VBox pane = new VBox(topbar, grid);
+        VBox pane = new VBox(16, topbar, chatPanel);
+        VBox.setVgrow(chatPanel, Priority.ALWAYS);
         pane.getStyleClass().add("session-root");
         pane.setVisible(false);
         pane.setManaged(false);
         return pane;
     }
 
+    /** Shows exactly one of the three views, and names the window after it. */
+    private void showOnly(Region pane) {
+        for (Region candidate : List.of(connectionPane, serverPane, clientPane)) {
+            boolean active = candidate == pane;
+            candidate.setVisible(active);
+            candidate.setManaged(active);
+        }
+        if (pane == serverPane) {
+            stage.setTitle("Chat — Server");
+        } else if (pane == clientPane) {
+            stage.setTitle(selfName.isBlank() ? "Chat — Client" : "Chat — Client · " + selfName);
+        } else {
+            stage.setTitle("Chat");
+        }
+    }
+
+    private void showConnectionPane() {
+        showOnly(connectionPane);
+    }
+
+    private void showServerPane() {
+        showOnly(serverPane);
+        refreshServerPane();
+    }
+
+    private void showClientPane() {
+        showOnly(clientPane);
+    }
+
+    // ------------------------------------------------------------- the form
+
     private void setMode(Mode newMode) {
         mode = newMode;
-        boolean host = newMode == Mode.HOST;
+        boolean server = newMode == Mode.SERVER;
 
-        hostFields.setVisible(host);
-        hostFields.setManaged(host);
-        connectFields.setVisible(!host);
-        connectFields.setManaged(!host);
+        serverFields.setVisible(server);
+        serverFields.setManaged(server);
+        clientFields.setVisible(!server);
+        clientFields.setManaged(!server);
 
-        modeHostButton.getStyleClass().remove("mode-button-active");
-        modeConnectButton.getStyleClass().remove("mode-button-active");
-        (host ? modeHostButton : modeConnectButton).getStyleClass().add("mode-button-active");
-        startButton.setText(host ? "Start Host" : "Connect");
+        modeServerButton.getStyleClass().remove("mode-button-active");
+        modeClientButton.getStyleClass().remove("mode-button-active");
+        (server ? modeServerButton : modeClientButton).getStyleClass().add("mode-button-active");
+        startButton.setText(server ? "Start Server" : "Connect");
     }
 
     private void onStart() {
         if (busy) {
             return;
         }
-        String status = mode == Mode.HOST ? "Listening" : "Connected";
+        starting = true;
         try {
             String displayName = requireDisplayName(displayNameField.getText());
-            PeerSession newSession = new PeerSession(receivedDirectory(), this, displayName,
-                    FileTypes::canPreviewImage);
-            if (mode == Mode.HOST) {
-                int port = parsePort(hostPortField.getText(), "Local port");
-                newSession.startHost(port);
+            ChatSession newSession = new ChatSession(this, displayName);
+            if (mode == Mode.SERVER) {
+                int port = parsePort(listenPortField.getText(), "Local port");
+                newSession.startServer(port);
+                replaceSession(newSession);
                 busy = true;
                 startButton.setDisable(true);
-                status = "Listening on port " + port;
+                resetServerPane();
+                showServerPane();
+                showConnectionStatus("Listening on port " + port);
             } else {
-                String host = requireHost(peerIpField.getText());
-                int port = parsePort(peerPortField.getText(), "Peer port");
-                newSession.startClient(host, port, PeerSession.CONNECT_TIMEOUT_MILLIS);
+                String host = requireHost(serverIpField.getText());
+                int port = parsePort(serverPortField.getText(), "Server port");
+                newSession.startClient(host, port, ChatSession.CONNECT_TIMEOUT_MILLIS);
+                replaceSession(newSession);
                 busy = true;
                 startButton.setDisable(true);
-                status = "Connected to " + host + ":" + port;
+                showClientPane();
+                refreshClientHeader();
+                showConnectionStatus("Connected to " + host + ":" + port);
+                messageField.requestFocus();
             }
-            replaceSession(newSession);
         } catch (IllegalArgumentException e) {
             showConnectionStatus("Invalid input: " + e.getMessage());
-            return;
+            showConnectionPane();
         } catch (Exception e) {
             showConnectionStatus("Connection failed: " + describe(e));
-            return;
+            showConnectionPane();
+        } finally {
+            starting = false;
         }
-        showConnectionStatus(status);
     }
 
-    private void replaceSession(PeerSession newSession) {
+    private void replaceSession(ChatSession newSession) {
         if (session != null) {
             session.close();
         }
         session = newSession;
+        selfName = newSession.displayName();
+        // The new session may already have published a directory (the server does so on start), so
+        // take it from the session instead of starting from an empty one.
+        selectedTargets.clear();
+        selfClientId = newSession.selfClientId();
+        clientDirectory = newSession.clients();
+        rebuildRecipientMenu();
         chatItems.clear();
-        resetTransferUi();
-        transferLogList.getItems().clear();
     }
+
+    private void endSession() {
+        if (session != null) {
+            session.disconnect();
+        }
+        busy = false;
+        startButton.setDisable(false);
+    }
+
+    private boolean runningAsServer() {
+        return session != null && session.isServer();
+    }
+
+    // ------------------------------------------------------------- the client
 
     private void onSend() {
         String text = messageField.getText();
@@ -336,112 +449,114 @@ public final class MainController implements SessionListener {
             showConnectionStatus("Not connected");
             return;
         }
-        session.sendChat(text);
-        appendChat(ChatItem.outboundText(text, System.currentTimeMillis()));
+        List<Integer> targets = List.copyOf(selectedTargets);
+        ChatScope scope = scopeFor(targets);
+        session.sendChat(text, scope, targets);
+        appendChat(ChatItem.outboundText(text, scope, namesOf(clientDirectory, targets),
+                System.currentTimeMillis()));
         messageField.clear();
     }
 
-    private void onSendFile() {
-        if (session == null || !session.isConnected()) {
-            showConnectionStatus("Not connected");
-            return;
+    // -------------------------------------------------------------- addressing
+
+    /**
+     * Rebuilds the recipient picker from the current directory and drops selected ids whose client
+     * left. You never appear in your own picker.
+     */
+    private void rebuildRecipientMenu() {
+        retainSelectable(clientDirectory, selectedTargets, selfClientId);
+        recipientButton.getItems().clear();
+        for (ClientInfo client : selectableClients(clientDirectory, selfClientId)) {
+            CheckBox box = new CheckBox(client.name() + "  #" + client.id());
+            box.getStyleClass().add("recipient-choice");
+            box.setSelected(selectedTargets.contains(client.id()));
+            box.selectedProperty().addListener((observable, was, isSelected) -> {
+                if (isSelected) {
+                    selectedTargets.add(client.id());
+                } else {
+                    selectedTargets.remove(client.id());
+                }
+                updateRecipientLabel();
+            });
+            recipientButton.getItems().add(new CustomMenuItem(box, false));
         }
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("Choose a file to send");
-        File selected = chooser.showOpenDialog(stage);
-        if (selected == null) {
-            return;
+        if (recipientButton.getItems().isEmpty()) {
+            MenuItem none = new MenuItem("No other client yet");
+            none.setDisable(true);
+            recipientButton.getItems().add(none);
         }
-        sendSelectedFile(selected.toPath());
+        updateRecipientLabel();
     }
 
-    private void sendSelectedFile(Path file) {
-        String fileName = file.getFileName() == null ? file.toString() : file.getFileName().toString();
-        long size;
-        try {
-            size = java.nio.file.Files.size(file);
-        } catch (java.io.IOException e) {
-            showConnectionStatus("Cannot read file: " + describe(e));
-            return;
-        }
-        int fileId = session.allocateFileId();
-        chatItems.trackOutbound(fileId,
-                ChatItem.outboundFile(fileId, fileName, size, file, System.currentTimeMillis()));
-        session.sendFile(file, fileId);
-    }
-
-    private void onSaveAs(ChatItem item) {
-        Path source = item.localPath();
-        if (source == null) {
-            return;
-        }
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("Save file as");
-        chooser.setInitialFileName(item.fileName());
-        File target = chooser.showSaveDialog(stage);
-        if (target == null) {
-            return;
-        }
-        try {
-            FileSaveSupport.saveAs(source, target.toPath());
-            appendLog("Saved " + item.fileName() + " -> " + target);
-        } catch (java.io.IOException e) {
-            showConnectionStatus("Save failed: " + describe(e));
-        }
-    }
-
-    private void onAcceptOffer(ChatItem item) {
-        if (session == null) {
-            return;
-        }
-        DirectoryChooser chooser = new DirectoryChooser();
-        chooser.setTitle("Choose where to save " + item.fileName());
-        Path initial = session.defaultReceiveDirectory();
-        if (initial != null && java.nio.file.Files.isDirectory(initial)) {
-            chooser.setInitialDirectory(initial.toFile());
-        }
-        File target = chooser.showDialog(stage);
-        if (target == null) {
-            return;
-        }
-        if (session.acceptFileOffer(item.fileId(), target.toPath())) {
-            chatItems.acceptLocally(item);
-        } else {
-            showConnectionStatus("Could not accept the file");
-        }
-    }
-
-    private void onDeclineOffer(ChatItem item) {
-        if (session == null) {
-            return;
-        }
-        session.declineFileOffer(item.fileId(), "declined by user");
-    }
-
-    private void onOpen(ChatItem item) {
-        Path path = item.localPath();
-        if (path == null || !java.nio.file.Files.isRegularFile(path)) {
-            showConnectionStatus("File is not available");
-            return;
-        }
-        try {
-            if (!java.awt.Desktop.isDesktopSupported()) {
-                showConnectionStatus("Opening files is not supported here");
-                return;
+    /**
+     * Who the picker offers: every client of the session except this instance. You never appear in
+     * your own recipient list, so a message cannot be addressed to its own sender. The server is not
+     * in the directory at all.
+     */
+    static List<ClientInfo> selectableClients(List<ClientInfo> directory, int selfClientId) {
+        List<ClientInfo> selectable = new ArrayList<>(directory.size());
+        for (ClientInfo client : directory) {
+            if (client.id() != selfClientId) {
+                selectable.add(client);
             }
-            java.awt.Desktop.getDesktop().open(path.toFile());
-        } catch (Exception e) {
-            showConnectionStatus("Cannot open file: " + describe(e));
+        }
+        return selectable;
+    }
+
+    /**
+     * Drops from {@code selected} every id that is no longer offered — a client that left between the
+     * picker being drawn and the message being sent. Without this the next send would address a ghost,
+     * and the server would have to drop the message as unreachable.
+     */
+    static void retainSelectable(List<ClientInfo> directory, Set<Integer> selected, int selfClientId) {
+        Set<Integer> offerable = new LinkedHashSet<>();
+        for (ClientInfo client : selectableClients(directory, selfClientId)) {
+            offerable.add(client.id());
+        }
+        selected.retainAll(offerable);
+    }
+
+    private void updateRecipientLabel() {
+        if (selectedTargets.isEmpty()) {
+            recipientButton.setText("Everyone");
+        } else {
+            recipientButton.setText(String.join(", ",
+                    namesOf(clientDirectory, List.copyOf(selectedTargets))));
         }
     }
 
-    private void onDisconnect() {
-        if (session != null) {
-            session.disconnect();
+    /**
+     * Nothing selected means everyone; one client is a unicast, several a multicast. Package-private
+     * so the rule can be tested without standing up a JavaFX toolkit.
+     */
+    static ChatScope scopeFor(List<Integer> targets) {
+        if (targets.isEmpty()) {
+            return ChatScope.BROADCAST;
         }
-        busy = false;
-        startButton.setDisable(false);
-        resetTransferUi();
+        return targets.size() == 1 ? ChatScope.UNICAST : ChatScope.MULTICAST;
+    }
+
+    /** Turns target ids into names, falling back to {@code #id} for a client the directory no longer lists. */
+    static List<String> namesOf(List<ClientInfo> directory, List<Integer> ids) {
+        List<String> names = new ArrayList<>(ids.size());
+        for (int id : ids) {
+            String name = null;
+            for (ClientInfo client : directory) {
+                if (client.id() == id) {
+                    name = client.name();
+                    break;
+                }
+            }
+            names.add(name == null ? "#" + id : name);
+        }
+        return names;
+    }
+
+    private void resetAddressing() {
+        selectedTargets.clear();
+        selfClientId = ChatSession.UNASSIGNED_CLIENT_ID;
+        clientDirectory = List.of();
+        rebuildRecipientMenu();
     }
 
     private void appendChat(ChatItem item) {
@@ -455,128 +570,146 @@ public final class MainController implements SessionListener {
         }
     }
 
-    private void appendLog(String line) {
-        transferLogList.getItems().add(LocalTime.now().format(TIME) + "  " + line);
-        transferLogList.scrollTo(transferLogList.getItems().size() - 1);
+    // ------------------------------------------------------------- the server
+
+    private void resetServerPane() {
+        relayLogLines.clear();
+        relayLog.getItems().clear();
+        serverClientList.getItems().clear();
+        serverSummaryLabel.setText(":/");
     }
+
+    private void refreshServerPane() {
+        int port = session == null ? -1 : session.port();
+        int relayed = session == null ? 0 : session.relayedCount();
+        serverSummaryLabel.setText(":" + (port < 0 ? "?" : port)
+                + " · Clients (" + clientDirectory.size() + ")"
+                + " · Relayed (" + relayed + ")");
+
+        List<String> rows = new ArrayList<>(clientDirectory.size());
+        for (ClientInfo client : clientDirectory) {
+            rows.add("#" + client.id() + "  " + client.name());
+        }
+        serverClientList.getItems().setAll(rows);
+    }
+
+    private void refreshClientHeader() {
+        // The name rides on the CLIENT chip rather than in the summary: it is what tells this window
+        // apart from the other clients at a glance.
+        clientTitleLabel.setText(selfName.isBlank() ? "CLIENT" : "CLIENT · " + selfName);
+        if (session == null) {
+            clientLabel.setText("No server");
+            return;
+        }
+        String me = selfClientId == ChatSession.UNASSIGNED_CLIENT_ID
+                ? "" : " · you are #" + selfClientId;
+        String where = "Connected to " + remoteDescription();
+        int count = clientDirectory.size();
+        clientLabel.setText(count <= 1 ? where + me : where + " · " + count + " clients" + me);
+    }
+
+    // ------------------------------------------------------------- callbacks
 
     private void showConnectionStatus(String status) {
         connectionStatusLabel.setText(status);
-        sessionStatusLabel.setText(status);
-    }
-
-    private void resetTransferUi() {
-        fileProgressBar.setProgress(0);
-        filePercentLabel.setText("0%");
-        fileInfoLabel.setText("No transfer yet");
-        fileStatusLabel.setText("Idle");
-    }
-
-    private void showSessionPane(boolean show) {
-        sessionPane.setVisible(show);
-        sessionPane.setManaged(show);
-        connectionPane.setVisible(!show);
-        connectionPane.setManaged(!show);
+        clientStatusLabel.setText(status);
+        serverStatusLabel.setText(status);
     }
 
     @Override
     public void onStatusChanged(String status) {
         runOnFx(() -> {
             showConnectionStatus(status);
-            if (status.startsWith("Listening")) {
-                showSessionPane(false);
-            } else if (status.startsWith("Connected")) {
-                peerLabel.setText(peerSummary());
-                showSessionPane(true);
-                messageField.requestFocus();
-            } else if (status.startsWith("Peer disconnected") || status.equals("Disconnected")) {
-                peerLabel.setText("No peer");
-                showSessionPane(false);
-                busy = false;
-                startButton.setDisable(false);
-                resetTransferUi();
-            } else if (status.equals("Connection failed")) {
-                busy = false;
-                startButton.setDisable(false);
-                showSessionPane(false);
+            if (starting) {
+                return;                     // onStart settles on the right pane once it knows it worked
+            }
+            if (status.equals(ChatSession.STATUS_DISCONNECTED)) {
+                if (runningAsServer()) {
+                    leaveServerPane();
+                } else {
+                    leaveClientPane();
+                }
+                return;
+            }
+            if (status.equals(ChatSession.STATUS_SERVER_DISCONNECTED)) {
+                leaveClientPane();
+                return;
+            }
+            if (status.equals(ChatSession.STATUS_CONNECTION_FAILED) && runningAsServer()) {
+                // The listening socket died under us, so no further client can join.
+                session.close();
+                leaveServerPane();
             }
         });
     }
 
     @Override
     public void onChatMessage(String sender, String message) {
-        runOnFx(() -> appendChat(ChatItem.inboundText(sender, message, System.currentTimeMillis())));
+        onChatMessage(sender, message, ChatScope.BROADCAST, List.of());
     }
 
     @Override
-    public void onFileOffered(int fileId, String direction, String fileName, long fileSize) {
-        runOnFx(() -> {
-            fileStatusLabel.setText("Incoming file: " + fileName);
-            chatItems.onFileOffered(fileId, direction, fileName, fileSize);
-        });
+    public void onChatMessage(String sender, String message, ChatScope scope, List<String> audience) {
+        runOnFx(() -> appendChat(ChatItem.inboundText(sender, message, scope, audience,
+                System.currentTimeMillis())));
     }
 
     @Override
-    public void onFileDeclined(int fileId, String direction, String fileName, String reason) {
+    public void onRosterChanged(int selfId, List<ClientInfo> clients) {
         runOnFx(() -> {
-            appendLog("#" + fileId + " " + direction + " " + fileName + " -> " + reason);
-            chatItems.onFileDeclined(fileId, direction, fileName, reason);
-        });
-    }
-
-    @Override
-    public void onFileProgress(int fileId, String direction, String fileName, long bytesTransferred, long totalBytes) {
-        double progress = totalBytes <= 0 ? 0 : (double) bytesTransferred / totalBytes;
-        runOnFx(() -> {
-            fileProgressBar.setProgress(Math.min(1, progress));
-            filePercentLabel.setText(Math.round(progress * 100) + "%");
-            fileInfoLabel.setText(direction + ": " + fileName + "\n"
-                    + NetworkUtils.formatBytes(bytesTransferred) + " / " + NetworkUtils.formatBytes(totalBytes));
-            fileStatusLabel.setText(direction.equals("Sending") ? "Transferring..." : "Receiving...");
-            chatItems.onFileProgress(fileId, direction, fileName, bytesTransferred, totalBytes);
-        });
-    }
-
-    @Override
-    public void onFileEvent(int fileId, String direction, String fileName, String detail,
-                            Path savedPath, boolean failed) {
-        runOnFx(() -> {
-            if (failed) {
-                fileStatusLabel.setText("Transfer failed");
-                appendLog("#" + fileId + " " + direction + " " + fileName + " -> FAILED: " + detail);
-            } else {
-                String location = savedPath == null ? "" : " -> " + savedPath;
-                fileStatusLabel.setText("Transfer completed");
-                appendLog("#" + fileId + " " + direction + " " + fileName + " completed" + location);
+            selfClientId = selfId;
+            clientDirectory = List.copyOf(clients);
+            if (runningAsServer()) {
+                refreshServerPane();
+                return;
             }
-            chatItems.onFileEvent(fileId, direction, fileName, detail, savedPath, failed);
+            rebuildRecipientMenu();
+            refreshClientHeader();
+        });
+    }
+
+    @Override
+    public void onServerLog(String message) {
+        runOnFx(() -> {
+            relayLogLines.add(message);
+            if (relayLogLines.size() > MAX_LOG_LINES) {
+                relayLogLines.remove(0);
+            }
+            relayLog.getItems().setAll(relayLogLines);
+            relayLog.scrollTo(relayLog.getItems().size() - 1);
         });
     }
 
     @Override
     public void onDisconnected(String reason) {
         runOnFx(() -> {
-            peerLabel.setText("No peer");
-            showSessionPane(false);
-            busy = false;
-            startButton.setDisable(false);
-            appendLog("Disconnected: " + reason);
+            if (runningAsServer()) {
+                leaveServerPane();
+            } else {
+                leaveClientPane();
+            }
         });
+    }
+
+    private void leaveServerPane() {
+        resetServerPane();
+        busy = false;
+        startButton.setDisable(false);
+        showConnectionPane();
+    }
+
+    private void leaveClientPane() {
+        selfName = "";
+        clientTitleLabel.setText("CLIENT");
+        clientLabel.setText("No server");
+        resetAddressing();
+        busy = false;
+        startButton.setDisable(false);
+        showConnectionPane();
     }
 
     private String remoteDescription() {
         return session == null ? "unknown" : session.remoteDescription();
-    }
-
-    private String peerSummary() {
-        if (session == null) {
-            return "No peer";
-        }
-        int count = session.peerCount();
-        if (count <= 1) {
-            return "Peer: " + remoteDescription();
-        }
-        return count + " peers: " + remoteDescription();
     }
 
     private static void runOnFx(Runnable action) {
@@ -587,13 +720,9 @@ public final class MainController implements SessionListener {
         }
     }
 
-    private static Path receivedDirectory() {
-        return Paths.get("received");
-    }
-
     private static String defaultDisplayName() {
         String user = System.getProperty("user.name");
-        return user == null || user.isBlank() ? "Peer" : user;
+        return user == null || user.isBlank() ? "Client" : user;
     }
 
     private static String requireDisplayName(String raw) {
@@ -628,7 +757,7 @@ public final class MainController implements SessionListener {
     private static String requireHost(String raw) {
         String host = raw == null ? "" : raw.trim();
         if (host.isEmpty()) {
-            throw new IllegalArgumentException("Peer IP is required");
+            throw new IllegalArgumentException("Server IP is required");
         }
         return host;
     }

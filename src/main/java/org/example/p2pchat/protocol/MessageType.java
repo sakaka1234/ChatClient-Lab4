@@ -2,17 +2,17 @@ package org.example.p2pchat.protocol;
 
 import java.io.IOException;
 
+/**
+ * The packet kinds of protocol v5. Ids are stable: adding a kind takes the next free id, and an id
+ * is never reused for a different kind, so a client running the same build always agrees on the byte.
+ */
 public enum MessageType {
 
     CHAT(1),
-    FILE_START(2),
-    FILE_CHUNK(3),
-    FILE_END(4),
-    DISCONNECT(5),
-    FILE_ACCEPT(6),
-    FILE_DECLINE(7),
-    HELLO(8),
-    RELAY(9);
+    DISCONNECT(2),
+    HELLO(3),
+    RELAY(4),
+    ROSTER(5);
 
     private final int id;
 

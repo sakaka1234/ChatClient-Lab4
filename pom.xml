@@ -74,7 +74,7 @@
                         <descriptorRef>jar-with-dependencies</descriptorRef>
                     </descriptorRefs>
                     <appendAssemblyId>false</appendAssemblyId>
-                    <finalName>P2PChat</finalName>
+                    <finalName>Chat</finalName>
                 </configuration>
                 <executions>
                     <execution>

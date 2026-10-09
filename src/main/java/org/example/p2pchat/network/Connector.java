@@ -7,9 +7,9 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 
-public final class PeerClient {
+public final class Connector {
 
-    private PeerClient() {
+    private Connector() {
     }
 
     public static Connection connect(String host, int port, int timeoutMillis, Connection.Listener listener)

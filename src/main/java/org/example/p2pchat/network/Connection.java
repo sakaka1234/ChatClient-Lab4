@@ -47,8 +47,8 @@ public final class Connection implements AutoCloseable {
         if (!open.compareAndSet(false, true)) {
             throw new IllegalStateException("Connection already started");
         }
-        reader = new Thread(this::readLoop, "p2p-reader");
-        writer = new Thread(this::writeLoop, "p2p-writer");
+        reader = new Thread(this::readLoop, "chat-reader");
+        writer = new Thread(this::writeLoop, "chat-writer");
         reader.setDaemon(true);
         writer.setDaemon(true);
         reader.start();
@@ -61,7 +61,7 @@ public final class Connection implements AutoCloseable {
         }
         try {
             if (!outgoing.offer(packet, SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                throw new IOException("Send queue is full; peer is too slow");
+                throw new IOException("Send queue is full; the client is too slow");
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -87,7 +87,7 @@ public final class Connection implements AutoCloseable {
             }
         } catch (IOException e) {
             if (open.get() && !closingIntentionally.get()) {
-                AppLogger.info("Peer connection closed unexpectedly: " + describe(e));
+                AppLogger.info("Connection closed unexpectedly: " + describe(e));
             }
             closeSocket();
             notifyDisconnected(closingIntentionally.get() ? null : e);
@@ -157,7 +157,7 @@ public final class Connection implements AutoCloseable {
 
     private static String describe(IOException e) {
         if (e instanceof EOFException) {
-            return "peer closed the stream";
+            return "the remote side closed the stream";
         }
         if (e instanceof SocketException) {
             return e.getMessage();

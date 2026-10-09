@@ -7,16 +7,16 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 
-public final class PeerServer implements AutoCloseable {
+public final class Acceptor implements AutoCloseable {
 
     private final ServerSocket serverSocket;
 
-    public PeerServer(int port) throws IOException {
+    public Acceptor(int port) throws IOException {
         NetworkUtils.validateListeningPort(port);
         this.serverSocket = new ServerSocket(port);
     }
 
-    public PeerServer(int port, InetAddress bindAddress) throws IOException {
+    public Acceptor(int port, InetAddress bindAddress) throws IOException {
         NetworkUtils.validateListeningPort(port);
         this.serverSocket = new ServerSocket(port, 1, bindAddress);
     }
@@ -33,7 +33,7 @@ public final class PeerServer implements AutoCloseable {
         AppLogger.info("Listening on port " + port());
         var socket = serverSocket.accept();
         socket.setTcpNoDelay(true);
-        AppLogger.info("Peer connected: " + socket.getInetAddress().getHostAddress());
+        AppLogger.info("Client connected: " + socket.getInetAddress().getHostAddress());
         return new Connection(socket, listener);
     }
 
